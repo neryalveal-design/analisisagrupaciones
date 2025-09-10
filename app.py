@@ -2,286 +2,177 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from PIL import Image
-import base64
 from io import BytesIO
 from fpdf import FPDF
+import datetime
 
-# ----------------------------
-# FUNCIONES AUXILIARES
-# ----------------------------
+# Función para normalizar nombres de grupos
+def normalizar_grupo(grupo):
+    return str(grupo).strip().upper()
 
-def logo_to_base64(img_path):
-    img = Image.open(img_path)
-    buffered = BytesIO()
-    img.save(buffered, format="PNG")
-    return base64.b64encode(buffered.getvalue()).decode()
+# Función para clasificar rendimiento individual
+def clasificar_rendimiento(promedio):
+    if promedio <= 250:
+        return "Insuficiente"
+    elif promedio <= 285:
+        return "Intermedio"
+    else:
+        return "Adecuado"
 
-def plot_line_evolucion(promedios):
-    fig, ax = plt.subplots()
-    ax.plot(range(1, len(promedios)+1), promedios, marker='o', color='#1e3799')
-    ax.set_title("Evolución del Promedio")
-    ax.set_xlabel("Ensayo")
-    ax.set_ylabel("Promedio")
-    ax.grid(True)
-    return fig
-
-def plot_pie_niveles(adecuado, intermedio, insuficiente):
-    fig, ax = plt.subplots()
-    ax.pie(
-        [adecuado, intermedio, insuficiente],
-        labels=["Adecuado", "Intermedio", "Insuficiente"],
-        colors=["#44bd32", "#fbc531", "#e84118"],
-        autopct='%1.0f%%',
-        startangle=90
-    )
-    ax.set_title("Distribución por Nivel")
-    ax.axis('equal')
-    return fig
-
-def plot_bar_comparativo(cursos, promedios):
-    fig, ax = plt.subplots()
-    ax.bar(cursos, promedios, color='#0984e3')
-    ax.set_title("Promedio por Curso")
-    ax.set_ylabel("Puntaje")
-    plt.xticks(rotation=45)
-    return fig
-
-def plot_stacked_niveles(cursos, adecuado, intermedio, insuficiente):
-    fig, ax = plt.subplots()
-    ax.bar(cursos, adecuado, label='Adecuado', color='#44bd32')
-    ax.bar(cursos, intermedio, bottom=adecuado, label='Intermedio', color='#fbc531')
-    bottom_sum = [a + i for a, i in zip(adecuado, intermedio)]
-    ax.bar(cursos, insuficiente, bottom=bottom_sum, label='Insuficiente', color='#e84118')
-    ax.set_ylabel('% de Estudiantes')
-    ax.set_title('Distribución de Niveles (%)')
-    plt.xticks(rotation=45)
-    ax.legend()
-    return fig
-
-def save_chart_as_image(fig, filename):
-    fig.savefig(filename, format='png', bbox_inches='tight')
-    plt.close(fig)
-
-def generar_pdf_curso(nombre_curso, logo_path, resumen_data, graficos_paths, output_path):
-    pdf = FPDF()
+# Portada PDF con logo
+def portada_pdf(pdf, logo_path):
     pdf.add_page()
-    pdf.image(logo_path, x=10, y=8, w=25)
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(200, 10, "Liceo San Nicolás - Departamento de Lenguaje", ln=True, align='C')
-    pdf.set_font("Arial", '', 12)
-    pdf.cell(200, 10, f"Informe de Resultados SIMCE - Curso {nombre_curso}", ln=True, align='C')
+    pdf.set_font("Helvetica", "B", 18)
+    if logo_path:
+        pdf.image(logo_path, x=70, y=30, w=70)
+    pdf.ln(120)
+    pdf.cell(0, 10, "Informe de Agrupaciones y Rendimiento SIMCE", 0, 1, "C")
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.cell(0, 10, "Departamento de Lenguaje", 0, 1, "C")
+    pdf.set_font("Helvetica", "", 12)
+    pdf.cell(0, 10, f"Fecha: {datetime.date.today().strftime('%d/%m/%Y')}", 0, 1, "C")
     pdf.ln(10)
-    for label, value in resumen_data.items():
-        pdf.cell(0, 10, f"{label}: {value}", ln=True)
-    for path in graficos_paths:
-        pdf.ln(5)
-        pdf.image(path, w=180)
-    pdf.output(output_path)
+    pdf.set_font("Helvetica", "I", 10)
+    pdf.cell(0, 10, "Generado automáticamente con la aplicación de consolidación SIMCE", 0, 1, "C")
 
-# ----------------------------
-# CONFIGURACIÓN INICIAL
-# ----------------------------
+# Página de resumen general
+def resumen_general(pdf, resultados):
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.cell(0, 10, "Resumen General por Grupo", 0, 1, "L")
+    pdf.ln(5)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(60, 10, "Grupo", 1)
+    pdf.cell(40, 10, "Promedio", 1)
+    pdf.cell(40, 10, "Estudiantes", 1)
+    pdf.cell(50, 10, "Rendimiento", 1)
+    pdf.ln()
+    pdf.set_font("Helvetica", "", 12)
+    for grupo, data in resultados.items():
+        pdf.cell(60, 10, grupo, 1)
+        pdf.cell(40, 10, f"{data['promedio']:.2f}", 1)
+        pdf.cell(40, 10, str(data['n_estudiantes']), 1)
+        pdf.cell(50, 10, data['rendimiento'], 1)
+        pdf.ln()
 
+# Función para exportar PDF
+def generar_pdf(resultados, logo_path):
+    pdf = FPDF()
+    portada_pdf(pdf, logo_path)
+    resumen_general(pdf, resultados)
+
+    for grupo, data in resultados.items():
+        pdf.add_page()
+        pdf.set_font("Helvetica", "B", 14)
+        pdf.cell(0, 10, f"Grupo {grupo}", 0, 1, "L")
+        pdf.set_font("Helvetica", "", 12)
+        pdf.cell(0, 10, f"Promedio: {data['promedio']:.2f} - {data['rendimiento']}", 0, 1, "L")
+        pdf.cell(0, 10, f"Número de estudiantes: {data['n_estudiantes']}", 0, 1, "L")
+
+        # Distribución porcentual
+        pdf.cell(0, 10, "Distribución de rendimiento:", 0, 1, "L")
+        for nivel, porcentaje in data["porcentajes"].items():
+            pdf.cell(0, 10, f"{nivel}: {porcentaje:.1f}%", 0, 1, "L")
+
+        # Insertar gráfico de distribución
+        if "grafico" in data:
+            img_bytes = BytesIO()
+            data["grafico"].savefig(img_bytes, format="PNG")
+            img_bytes.seek(0)
+            img_path = f"/tmp/{grupo}.png"
+            with open(img_path, "wb") as f:
+                f.write(img_bytes.read())
+            pdf.image(img_path, x=30, y=100, w=150)
+            os.remove(img_path)
+
+        # Top 5 alumnos más bajos
+        pdf.ln(120)
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.cell(0, 10, "Top 5 alumnos con menor puntaje:", 0, 1)
+        pdf.set_font("Helvetica", "", 11)
+        for alumno in data["peores"]:
+            pdf.cell(0, 8, alumno, 0, 1)
+
+    buffer = BytesIO()
+    pdf.output(buffer)
+    buffer.seek(0)
+    return buffer
+
+st.set_page_config(page_title="Agrupaciones SIMCE", layout="wide")
+st.title("📊 Generador de Agrupaciones y Reporte SIMCE")
+
+archivo = st.file_uploader("Sube el archivo consolidado (cursos 2º A - 2º F)", type=["xlsx"])
 logo_path = "logo_liceo.png"
-logo_base64 = logo_to_base64(logo_path)
 
-st.set_page_config(page_title="Análisis SIMCE", page_icon="📊", layout="wide")
+if archivo:
+    xls = pd.ExcelFile(archivo)
+    hojas = {"ABC": ["2º A", "2º B", "2º C"], "DEF": ["2º D", "2º E", "2º F"]}
 
-st.markdown(f"""
-    <style>
-    #MainMenu {{visibility: hidden;}}
-    footer {{visibility: hidden;}}
-    header {{visibility: hidden;}}
+    writer_buffer = BytesIO()
+    writer = pd.ExcelWriter(writer_buffer, engine="xlsxwriter")
+    resultados = {}
 
-    .custom-header {{
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 1rem 2rem;
-        background-color: #f0f4f7;
-        border-bottom: 2px solid #dcdcdc;
-    }}
+    for grupo_tipo, cursos in hojas.items():
+        df_total = pd.concat([xls.parse(h) for h in cursos], ignore_index=True)
+        df_total["GRUPO"] = df_total["GRUPO"].apply(normalizar_grupo)
 
-    .custom-header h1 {{
-        color: #1e3799;
-        font-size: 26px;
-        margin: 0;
-    }}
+        for grupo in ["1", "2", "3", "4", "5", "STEM", "RET", "PIE"]:
+            df_grupo = df_total[df_total["GRUPO"] == grupo]
+            if not df_grupo.empty:
+                hoja_nombre = f"2°{grupo_tipo}-G{grupo}"
+                df_grupo.to_excel(writer, sheet_name=hoja_nombre, index=False)
 
-    .custom-subtitle {{
-        font-size: 16px;
-        color: #444;
-        margin-top: 0.2rem;
-    }}
+                ensayos = [c for c in df_grupo.columns if c.startswith("Puntaje Ensayo")]
+                if ensayos:
+                    # Promedios individuales por alumno
+                    promedios_ind = df_grupo[ensayos].mean(axis=1, skipna=True)
 
-    div.stDownloadButton > button {{
-        background-color: #ff4b4b;
-        color: white;
-        font-weight: bold;
-        border-radius: 8px;
-        padding: 0.75em 1.5em;
-        font-size: 16px;
-        border: none;
-        margin-top: 1rem;
-    }}
+                    # Clasificación por alumno
+                    clasificaciones = promedios_ind.apply(clasificar_rendimiento)
+                    dist = clasificaciones.value_counts(normalize=True) * 100
 
-    div.stDownloadButton > button:hover {{
-        background-color: #e84118;
-    }}
-    </style>
-""", unsafe_allow_html=True)
+                    # Promedio del grupo
+                    promedio_grupo = promedios_ind.mean()
+                    clasificacion_grupo = clasificar_rendimiento(promedio_grupo)
 
-st.markdown(f"""
-<div class="custom-header">
-    <div>
-        <h1>Liceo San Nicolás - Departamento de Lenguaje</h1>
-        <div class="custom-subtitle">Sistema de análisis de resultados educativos SIMCE</div>
-    </div>
-    <div>
-        <img src="data:image/png;base64,{logo_base64}" width="60"/>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+                    # Gráfico de distribución
+                    fig, ax = plt.subplots()
+                    labels = ["Insuficiente", "Intermedio", "Adecuado"]
+                    values = [dist.get(l, 0) for l in labels]
+                    colors = ["red", "yellow", "blue"]
+                    ax.pie(values, labels=labels, colors=colors, autopct='%1.1f%%')
+                    ax.set_title(f"Distribución Grupo {hoja_nombre}")
 
-# ----------------------------
-# NAVEGACIÓN
-# ----------------------------
+                    # Peores 5 alumnos
+                    peores = df_grupo.loc[promedios_ind.nsmallest(5).index, "Nombre Estudiante"].tolist()
 
-st.sidebar.title("📊 Análisis SIMCE")
-menu = st.sidebar.radio("Ir a:", ["📁 Cargar Datos", "📊 Resumen por Curso", "👨‍🎓 Reportes Estudiantes", "📈 Comparativo Cursos", "💡 Recomendaciones"])
+                    resultados[hoja_nombre] = {
+                        "promedio": promedio_grupo,
+                        "rendimiento": clasificacion_grupo,
+                        "grafico": fig,
+                        "peores": peores,
+                        "n_estudiantes": len(df_grupo),
+                        "porcentajes": {l: dist.get(l, 0) for l in labels}
+                    }
 
-# ----------------------------
-# VISTA: CARGAR DATOS
-# ----------------------------
+    writer.close()
+    writer_buffer.seek(0)
 
-if menu == "📁 Cargar Datos":
-    st.title("📁 Cargar Resultados SIMCE")
-    uploaded_file = st.file_uploader("Seleccionar Archivo", type=["xlsx", "xls", "csv"])
-    st.markdown("### Formato Esperado")
-    st.markdown("Archivo Excel con hojas por curso o CSV por curso.")
-    if st.button("Usar Datos de Ejemplo"):
-        st.success("Funcionalidad de ejemplo activada. Aquí se cargarían los datos de prueba.")
+    st.download_button("📥 Descargar AGRUPACIONES.xlsx", data=writer_buffer, file_name="AGRUPACIONES.xlsx")
 
-# ----------------------------
-# VISTA: RESUMEN POR CURSO
-# ----------------------------
+    st.header("📌 Resumen por Grupo")
+    cols = st.columns(3)
+    i = 0
+    for grupo, data in resultados.items():
+        with cols[i % 3]:
+            st.subheader(grupo)
+            st.write(f"Promedio: {data['promedio']:.2f} ({data['rendimiento']})")
+            st.write(f"Estudiantes: {data['n_estudiantes']}")
+            for nivel, porcentaje in data["porcentajes"].items():
+                st.write(f"{nivel}: {porcentaje:.1f}%")
+            st.pyplot(data["grafico"])
+        i += 1
 
-elif menu == "📊 Resumen por Curso":
-    st.title("📊 Resumen por Curso")
-    nombre_curso = "2°ABC-G1"
-    resumen_data = {
-        "Total Estudiantes": 22,
-        "Promedio General": "318.6",
-        "Mediana": "313",
-        "Total Ensayos": 8
-    }
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total Estudiantes", resumen_data["Total Estudiantes"])
-    col2.metric("Promedio General", resumen_data["Promedio General"])
-    col3.metric("Mediana", resumen_data["Mediana"])
-    col4.metric("Total Ensayos", resumen_data["Total Ensayos"])
-
-    col5, col6 = st.columns(2)
-    fig1 = plot_line_evolucion([307.7, 282.7, 307.1, 332.7, 318.6, 300.0, 368.3, 313.0])
-    fig2 = plot_pie_niveles(75, 20, 5)
-    col5.pyplot(fig1)
-    col6.pyplot(fig2)
-
-    path1 = f"/tmp/evolucion_{nombre_curso}.png"
-    path2 = f"/tmp/niveles_{nombre_curso}.png"
-    save_chart_as_image(fig1, path1)
-    save_chart_as_image(fig2, path2)
-
-    pdf_output_path = f"/tmp/reporte_{nombre_curso}.pdf"
-    generar_pdf_curso(nombre_curso, logo_path, resumen_data, [path1, path2], pdf_output_path)
-
-    with open(pdf_output_path, "rb") as f:
-        pdf_bytes = f.read()
-    pdf_b64 = base64.b64encode(pdf_bytes).decode()
-
-    st.markdown(f"""
-        <div style="display: flex; justify-content: flex-end;">
-            <a href="data:application/pdf;base64,{pdf_b64}" download="Reporte_SIMCE_{nombre_curso}.pdf">
-                <button>
-                    📄 Descargar PDF del Curso
-                </button>
-            </a>
-        </div>
-    """, unsafe_allow_html=True)
-
-# ----------------------------
-# VISTA: COMPARATIVO CURSOS
-# ----------------------------
-
-elif menu == "📈 Comparativo Cursos":
-    st.title("📈 Comparativo entre Cursos")
-
-    cursos = [
-        {"nombre": "2°ABC-G2", "promedio": 330, "adecuado": 40, "intermedio": 30, "insuficiente": 30},
-        {"nombre": "2°DEF-G1", "promedio": 355, "adecuado": 60, "intermedio": 20, "insuficiente": 20},
-        {"nombre": "2°DEF-G3", "promedio": 290, "adecuado": 25, "intermedio": 25, "insuficiente": 50}
-    ]
-
-    for curso in cursos:
-        nombre = curso["nombre"]
-        st.subheader(f"📘 {nombre}")
-        resumen_data = {
-            "Total Estudiantes": 30,
-            "Promedio General": curso["promedio"],
-            "Mediana": curso["promedio"] - 10,
-            "Total Ensayos": 8
-        }
-
-        fig1 = plot_line_evolucion([280, 295, curso["promedio"], 310])
-        fig2 = plot_pie_niveles(curso["adecuado"], curso["intermedio"], curso["insuficiente"])
-        path1 = f"/tmp/evolucion_{nombre}.png"
-        path2 = f"/tmp/niveles_{nombre}.png"
-        save_chart_as_image(fig1, path1)
-        save_chart_as_image(fig2, path2)
-        pdf_output_path = f"/tmp/reporte_{nombre}.pdf"
-        generar_pdf_curso(nombre, logo_path, resumen_data, [path1, path2], pdf_output_path)
-        with open(pdf_output_path, "rb") as f:
-            pdf_bytes = f.read()
-        pdf_b64 = base64.b64encode(pdf_bytes).decode()
-
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Estudiantes", resumen_data["Total Estudiantes"])
-        col2.metric("Promedio", resumen_data["Promedio General"])
-        col3.metric("Mediana", resumen_data["Mediana"])
-        col4.metric("Ensayos", resumen_data["Total Ensayos"])
-
-        st.markdown(f"""
-            <div style="display: flex; justify-content: flex-end;">
-                <a href="data:application/pdf;base64,{pdf_b64}" download="Reporte_SIMCE_{nombre}.pdf">
-                    <button>
-                        📄 Descargar PDF del Curso
-                    </button>
-                </a>
-            </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("---")
-
-# ----------------------------
-# VISTA: RECOMENDACIONES
-# ----------------------------
-
-elif menu == "💡 Recomendaciones":
-    st.title("💡 Recomendaciones Pedagógicas")
-    st.markdown("""
-    - 🔴 **Insuficiente**: Requieren intervención inmediata.
-    - 🟡 **Intermedio**: Consolidar aprendizajes.
-    - 🟢 **Adecuado**: Desafíos adicionales y enriquecimiento.
-    """)
-
-# ----------------------------
-# VISTA: REPORTES INDIVIDUALES
-# ----------------------------
-
-elif menu == "👨‍🎓 Reportes Estudiantes":
-    st.title("👨‍🎓 Reportes por Estudiante")
-    st.write("Selecciona un curso para ver los detalles individuales.")
-    st.selectbox("Curso", ["2°ABC-G1", "2°DEF-G1"])
-    st.write("Mostrar gráficos individuales de trayectoria de puntajes y clasificaciones.")
+    if st.button("📑 Generar Reporte PDF"):
+        pdf_buffer = generar_pdf(resultados, logo_path)
+        st.download_button("📥 Descargar Reporte PDF", data=pdf_buffer, file_name="Reporte_SIMCE.pdf")
