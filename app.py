@@ -10,7 +10,7 @@ import datetime
 def normalizar_grupo(grupo):
     return str(grupo).strip().upper()
 
-# Función para clasificar rendimiento
+# Función para clasificar rendimiento individual
 def clasificar_rendimiento(promedio):
     if promedio <= 250:
         return "Insuficiente"
@@ -35,10 +35,31 @@ def portada_pdf(pdf, logo_path):
     pdf.set_font("Helvetica", "I", 10)
     pdf.cell(0, 10, "Generado automáticamente con la aplicación de consolidación SIMCE", 0, 1, "C")
 
+# Página de resumen general
+def resumen_general(pdf, resultados):
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.cell(0, 10, "Resumen General por Grupo", 0, 1, "L")
+    pdf.ln(5)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(60, 10, "Grupo", 1)
+    pdf.cell(40, 10, "Promedio", 1)
+    pdf.cell(40, 10, "Estudiantes", 1)
+    pdf.cell(50, 10, "Rendimiento", 1)
+    pdf.ln()
+    pdf.set_font("Helvetica", "", 12)
+    for grupo, data in resultados.items():
+        pdf.cell(60, 10, grupo, 1)
+        pdf.cell(40, 10, f"{data['promedio']:.2f}", 1)
+        pdf.cell(40, 10, str(data['n_estudiantes']), 1)
+        pdf.cell(50, 10, data['rendimiento'], 1)
+        pdf.ln()
+
 # Función para exportar PDF
 def generar_pdf(resultados, logo_path):
     pdf = FPDF()
     portada_pdf(pdf, logo_path)
+    resumen_general(pdf, resultados)
 
     for grupo, data in resultados.items():
         pdf.add_page()
@@ -46,8 +67,14 @@ def generar_pdf(resultados, logo_path):
         pdf.cell(0, 10, f"Grupo {grupo}", 0, 1, "L")
         pdf.set_font("Helvetica", "", 12)
         pdf.cell(0, 10, f"Promedio: {data['promedio']:.2f} - {data['rendimiento']}", 0, 1, "L")
+        pdf.cell(0, 10, f"Número de estudiantes: {data['n_estudiantes']}", 0, 1, "L")
 
-        # Insertar gráfico
+        # Distribución porcentual
+        pdf.cell(0, 10, "Distribución de rendimiento:", 0, 1, "L")
+        for nivel, porcentaje in data["porcentajes"].items():
+            pdf.cell(0, 10, f"{nivel}: {porcentaje:.1f}%", 0, 1, "L")
+
+        # Insertar gráfico de distribución
         if "grafico" in data:
             img_bytes = BytesIO()
             data["grafico"].savefig(img_bytes, format="PNG")
@@ -55,11 +82,11 @@ def generar_pdf(resultados, logo_path):
             img_path = f"/tmp/{grupo}.png"
             with open(img_path, "wb") as f:
                 f.write(img_bytes.read())
-            pdf.image(img_path, x=30, y=60, w=150)
+            pdf.image(img_path, x=30, y=100, w=150)
             os.remove(img_path)
 
         # Top 5 alumnos más bajos
-        pdf.ln(100)
+        pdf.ln(120)
         pdf.set_font("Helvetica", "B", 12)
         pdf.cell(0, 10, "Top 5 alumnos con menor puntaje:", 0, 1)
         pdf.set_font("Helvetica", "", 11)
@@ -75,13 +102,12 @@ st.set_page_config(page_title="Agrupaciones SIMCE", layout="wide")
 st.title("📊 Generador de Agrupaciones y Reporte SIMCE")
 
 archivo = st.file_uploader("Sube el archivo consolidado (cursos 2º A - 2º F)", type=["xlsx"])
-logo_path = "logo_liceo.png"  # Logo embebido en el proyecto
+logo_path = "logo_liceo.png"
 
 if archivo:
     xls = pd.ExcelFile(archivo)
     hojas = {"ABC": ["2º A", "2º B", "2º C"], "DEF": ["2º D", "2º E", "2º F"]}
 
-    # Crear Excel de salida
     writer_buffer = BytesIO()
     writer = pd.ExcelWriter(writer_buffer, engine="xlsxwriter")
     resultados = {}
@@ -93,31 +119,40 @@ if archivo:
         for grupo in ["1", "2", "3", "4", "5", "STEM", "RET", "PIE"]:
             df_grupo = df_total[df_total["GRUPO"] == grupo]
             if not df_grupo.empty:
-                hoja_nombre = f"2°{grupo_tipo}-G{grupo}" if grupo.isdigit() else f"2°{grupo_tipo}-G{grupo}"
+                hoja_nombre = f"2°{grupo_tipo}-G{grupo}"
                 df_grupo.to_excel(writer, sheet_name=hoja_nombre, index=False)
 
-                # Calcular promedio (último ensayo disponible)
                 ensayos = [c for c in df_grupo.columns if c.startswith("Puntaje Ensayo")]
                 if ensayos:
-                    promedios = df_grupo[ensayos].mean(axis=1, skipna=True)
-                    promedio_grupo = promedios.mean()
-                    clasificacion = clasificar_rendimiento(promedio_grupo)
+                    # Promedios individuales por alumno
+                    promedios_ind = df_grupo[ensayos].mean(axis=1, skipna=True)
 
-                    # Gráfico circular
+                    # Clasificación por alumno
+                    clasificaciones = promedios_ind.apply(clasificar_rendimiento)
+                    dist = clasificaciones.value_counts(normalize=True) * 100
+
+                    # Promedio del grupo
+                    promedio_grupo = promedios_ind.mean()
+                    clasificacion_grupo = clasificar_rendimiento(promedio_grupo)
+
+                    # Gráfico de distribución
                     fig, ax = plt.subplots()
-                    sizes = [1]  # solo un segmento representando el grupo
-                    colors = {"Insuficiente": "red", "Intermedio": "yellow", "Adecuado": "blue"}
-                    ax.pie(sizes, labels=[clasificacion], colors=[colors[clasificacion]], autopct='%1.1f%%')
-                    ax.set_title(f"Rendimiento Grupo {hoja_nombre}")
+                    labels = ["Insuficiente", "Intermedio", "Adecuado"]
+                    values = [dist.get(l, 0) for l in labels]
+                    colors = ["red", "yellow", "blue"]
+                    ax.pie(values, labels=labels, colors=colors, autopct='%1.1f%%')
+                    ax.set_title(f"Distribución Grupo {hoja_nombre}")
 
                     # Peores 5 alumnos
-                    peores = df_grupo.loc[promedios.nsmallest(5).index, "Nombre Estudiante"].tolist()
+                    peores = df_grupo.loc[promedios_ind.nsmallest(5).index, "Nombre Estudiante"].tolist()
 
                     resultados[hoja_nombre] = {
                         "promedio": promedio_grupo,
-                        "rendimiento": clasificacion,
+                        "rendimiento": clasificacion_grupo,
                         "grafico": fig,
-                        "peores": peores
+                        "peores": peores,
+                        "n_estudiantes": len(df_grupo),
+                        "porcentajes": {l: dist.get(l, 0) for l in labels}
                     }
 
     writer.close()
@@ -125,7 +160,6 @@ if archivo:
 
     st.download_button("📥 Descargar AGRUPACIONES.xlsx", data=writer_buffer, file_name="AGRUPACIONES.xlsx")
 
-    # Mostrar resumen y gráficos
     st.header("📌 Resumen por Grupo")
     cols = st.columns(3)
     i = 0
@@ -133,10 +167,12 @@ if archivo:
         with cols[i % 3]:
             st.subheader(grupo)
             st.write(f"Promedio: {data['promedio']:.2f} ({data['rendimiento']})")
+            st.write(f"Estudiantes: {data['n_estudiantes']}")
+            for nivel, porcentaje in data["porcentajes"].items():
+                st.write(f"{nivel}: {porcentaje:.1f}%")
             st.pyplot(data["grafico"])
         i += 1
 
-    # Botón para generar PDF bajo demanda
     if st.button("📑 Generar Reporte PDF"):
         pdf_buffer = generar_pdf(resultados, logo_path)
         st.download_button("📥 Descargar Reporte PDF", data=pdf_buffer, file_name="Reporte_SIMCE.pdf")
